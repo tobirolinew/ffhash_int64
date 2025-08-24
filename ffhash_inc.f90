@@ -4,8 +4,29 @@
   ! implicit none
   ! #define FFH_KEY_TYPE integer
   ! #define FFH_VAL_TYPE integer (optional)
+  ! #define FFH_T ffh_t (optional)
+  ! #define FFH_INT_KIND int32 (optional)
+  ! #define FFH_EX_KEY_ERR .false. (optional)
   ! #include "ffhash_inc.f90"
   ! end module m_ffhash
+
+  ! Defining FFH's integer kind 
+#ifdef FFH_ENABLE_INT64
+#define FFH_INT_KIND int64 
+#else
+#define FFH_INT_KIND int32 
+#endif
+
+   ! Setting the default hash type name
+#ifndef FFH_T
+#define FFH_T ffh_t
+#endif
+
+   !Setting a default value for "existing_key_is_error" 
+#ifdef FFH_EXISTING_KEY_IS_ERROR
+#else 
+#define FFH_EXISTING_KEY_IS_ERROR .false. 
+#endif
 
   ! Special handling of strings (which can be shortened)
 #ifdef FFH_KEY_IS_STRING
@@ -22,25 +43,28 @@
 #endif
 #endif
 
+
+
   private
+  public :: MurmurHash3_x86_32, MurmurHash3_x64_128
 
   !> Type storing the hash table
-  type, public :: ffh_t
+  type, public :: FFH_T
      !> Number of buckets in hash table
-     integer                    :: n_buckets       = 0
+     integer(FFH_INT_KIND)      :: n_buckets       = 0
      !> Number of keys stored in hash table
-     integer                    :: n_keys_stored   = 0
+     integer(FFH_INT_KIND)      :: n_keys_stored   = 0
      !> Number of keys stored or deleted
-     integer                    :: n_occupied      = 0
+     integer(FFH_INT_KIND)      :: n_occupied      = 0
      !> Maximum number of occupied buckets
-     integer                    :: n_occupied_max  = 0
+     integer(FFH_INT_KIND)      :: n_occupied_max  = 0
      !> Mask to convert hash to index
-     integer                    :: hash_mask       = 0
+     integer(FFH_INT_KIND)      :: hash_mask       = 0
      !> Maximum load factor for the hash table
      double precision           :: max_load_factor = 0.7d0
      !> Whether storing an already existing key should throw an error
-     logical                    :: existing_key_is_error = .false.
-
+     logical                    :: existing_key_is_error = &
+                                   FFH_EXISTING_KEY_IS_ERROR
      !> Flags indicating whether buckets are empty or deleted
      character, allocatable     :: flags(:)
      !> Keys of the hash table
@@ -84,15 +108,15 @@
 #endif
      !> Hash function
      procedure, non_overridable, nopass :: hash_function
-  end type ffh_t
+  end type FFH_T
 
 contains
 
   !> Get index corresponding to a key. If the key is not found, return -1.
   elemental pure function get_index(h, key) result(ix)
-    class(ffh_t), intent(in) :: h
+    class(FFH_T), intent(in) :: h
     FFH_KEY_ARG, intent(in)  :: key
-    integer                  :: ix, i, step
+    integer(FFH_INT_KIND)    :: ix, i, step
 
     ix = -1
     i  = hash_index(h, key)
@@ -116,10 +140,10 @@ contains
 #ifdef FFH_VAL_TYPE
   !> Get the value corresponding to a key
   pure subroutine get_value(h, key, val, status)
-    class(ffh_t), intent(in)   :: h
-    FFH_KEY_ARG, intent(in)    :: key
-    FFH_VAL_ARG, intent(inout) :: val
-    integer, intent(out)       :: status
+    class(FFH_T), intent(in)           :: h
+    FFH_KEY_ARG, intent(in)            :: key
+    FFH_VAL_ARG, intent(inout)         :: val
+    integer(FFH_INT_KIND), intent(out) :: status
 
     status = h%get_index(key)
     if (status >= 0) val = h%vals(status)
@@ -127,51 +151,51 @@ contains
 
   !> Get the value corresponding to a key
   subroutine uget_value(h, key, val)
-    class(ffh_t), intent(in)   :: h
+    class(FFH_T), intent(in)   :: h
     FFH_KEY_ARG, intent(in)    :: key
     FFH_VAL_ARG, intent(inout) :: val
-    integer                    :: status
+    integer(FFH_INT_KIND)      :: status
     call get_value(h, key, val, status)
     if (status < 0) error stop "Cannot get value"
   end subroutine uget_value
 
   !> Get the value corresponding to a key
   function fget_value(h, key) result(val)
-    class(ffh_t), intent(in) :: h
+    class(FFH_T), intent(in) :: h
     FFH_KEY_ARG, intent(in)  :: key
     FFH_VAL_TYPE             :: val
-    integer                  :: status
+    integer(FFH_INT_KIND)    :: status
     call get_value(h, key, val, status)
     if (status < 0) error stop "Cannot get value"
   end function fget_value
 
   !> Get the value corresponding to a key
   elemental pure function fget_value_or(h, key, not_found) result(val)
-    class(ffh_t), intent(in) :: h
+    class(FFH_T), intent(in) :: h
     FFH_KEY_ARG, intent(in)  :: key
     FFH_VAL_ARG, intent(in)  :: not_found
     FFH_VAL_TYPE             :: val
-    integer                  :: status
+    integer(FFH_INT_KIND)    :: status
     call get_value(h, key, val, status)
     if (status < 0) val = not_found
   end function fget_value_or
 
   !> Store the value corresponding to a key
   pure subroutine store_value(h, key, val, ix)
-    class(ffh_t), intent(inout) :: h
-    FFH_KEY_ARG, intent(in)     :: key
-    FFH_VAL_ARG, intent(in)     :: val
-    integer, intent(out)        :: ix !< Index (or -1)
+    class(FFH_T), intent(inout)        :: h
+    FFH_KEY_ARG, intent(in)            :: key
+    FFH_VAL_ARG, intent(in)            :: val
+    integer(FFH_INT_KIND), intent(out) :: ix !< Index (or -1 / -2)
 
     call h%store_key(key, ix)
     if (ix >= 0) h%vals(ix) = val
   end subroutine store_value
 
   subroutine ustore_value(h, key, val)
-    class(ffh_t), intent(inout) :: h
+    class(FFH_T), intent(inout) :: h
     FFH_KEY_ARG, intent(in)     :: key
     FFH_VAL_ARG, intent(in)     :: val
-    integer                     :: ix
+    integer(FFH_INT_KIND)       :: ix
     call store_value(h, key, val, ix)
     if (ix < 0) error stop "Cannot store value"
   end subroutine ustore_value
@@ -182,10 +206,10 @@ contains
   !> already present, and existing_key_is_error is true, the returned index is
   !> set to -2.
   pure subroutine store_key(h, key, i)
-    class(ffh_t), intent(inout) :: h
-    FFH_KEY_ARG, intent(in)     :: key
-    integer, intent(out)        :: i
-    integer                     :: i_deleted, step, status
+    class(FFH_T), intent(inout)        :: h
+    FFH_KEY_ARG, intent(in)            :: key
+    integer(FFH_INT_KIND), intent(out) :: i
+    integer(FFH_INT_KIND)              :: i_deleted, step, status
 
     i = -1
 
@@ -249,11 +273,11 @@ contains
 
   !> Resize a hash table
   pure subroutine resize(h, new_n_buckets, status)
-    class(ffh_t), intent(inout) :: h
-    integer, intent(in)         :: new_n_buckets
-    integer, intent(out)        :: status
-    integer                     :: n_new, i, j, step
-    type(ffh_t)                 :: hnew
+    class(FFH_T), intent(inout)        :: h
+    integer(FFH_INT_KIND), intent(in)  :: new_n_buckets
+    integer(FFH_INT_KIND), intent(out) :: status
+    integer(FFH_INT_KIND)              :: n_new, i, j, step
+    type(FFH_T)                        :: hnew
 
     ! Make sure n_new is a power of two, and at least 4
     n_new = 4
@@ -322,10 +346,10 @@ contains
 
   !> Delete entry for given key
   pure subroutine delete_key(h, key, status)
-    class(ffh_t), intent(inout) :: h
-    FFH_KEY_ARG, intent(in)     :: key
-    integer, intent(out)        :: status
-    integer                     :: ix
+    class(FFH_T), intent(inout)        :: h
+    FFH_KEY_ARG, intent(in)            :: key
+    integer(FFH_INT_KIND), intent(out) :: status
+    integer(FFH_INT_KIND)              :: ix
 
     ix = h%get_index(key)
     if (ix >= 0) then
@@ -339,18 +363,18 @@ contains
 
   !> Delete entry for given key
   subroutine udelete_key(h, key)
-    class(ffh_t), intent(inout) :: h
+    class(FFH_T), intent(inout) :: h
     FFH_KEY_ARG, intent(in)     :: key
-    integer                     :: status
+    integer(FFH_INT_KIND)       :: status
     call h%delete_key(key, status)
     if (status < 0) error stop "Cannot delete key"
   end subroutine udelete_key
 
   !> Delete entry at index. A negative status indicates an error.
   pure subroutine delete_index(h, ix, status)
-    class(ffh_t), intent(inout) :: h
-    integer, intent(in)         :: ix
-    integer, intent(out)        :: status
+    class(FFH_T), intent(inout)        :: h
+    integer(FFH_INT_KIND), intent(in)  :: ix
+    integer(FFH_INT_KIND), intent(out) :: status
 
     if (ix < lbound(h%keys, 1) .or. ix > ubound(h%keys, 1)) then
        status = -1
@@ -365,16 +389,16 @@ contains
 
   !> Delete entry at index
   subroutine udelete_index(h, ix)
-    class(ffh_t), intent(inout) :: h
-    integer, intent(in)         :: ix
-    integer                     :: status
+    class(FFH_T), intent(inout)        :: h
+    integer(FFH_INT_KIND), intent(in)  :: ix
+    integer(FFH_INT_KIND)              :: status
     call h%delete_index(ix, status)
     if (status < 0) error stop "Cannot delete key"
   end subroutine udelete_index
 
   !> Reset the hash table to initial empty state
   subroutine reset(h)
-    class(ffh_t), intent(inout) :: h
+    class(FFH_T), intent(inout) :: h
 
     h%n_buckets       = 0
     h%n_keys_stored   = 0
@@ -392,48 +416,48 @@ contains
   end subroutine reset
 
   pure logical function bucket_empty(h, i)
-    type(ffh_t), intent(in) :: h
-    integer, intent(in)     :: i
+    type(FFH_T), intent(in)           :: h
+    integer(FFH_INT_KIND), intent(in) :: i
     bucket_empty = (iand(iachar(h%flags(i)), 1) == 0)
   end function bucket_empty
 
   pure logical function bucket_deleted(h, i)
-    type(ffh_t), intent(in) :: h
-    integer, intent(in)     :: i
+    type(FFH_T), intent(in)           :: h
+    integer(FFH_INT_KIND), intent(in) :: i
     bucket_deleted = (iand(iachar(h%flags(i)), 2) /= 0)
   end function bucket_deleted
 
   !> Check if index is used and not deleted
   pure logical function valid_index(h, i)
-    class(ffh_t), intent(in) :: h
-    integer, intent(in)      :: i
+    class(FFH_T), intent(in)          :: h
+    integer(FFH_INT_KIND), intent(in) :: i
     valid_index = (iachar(h%flags(i)) == 1)
   end function valid_index
 
   pure subroutine set_bucket_filled(h, i)
-    type(ffh_t), intent(inout) :: h
-    integer, intent(in)        :: i
+    type(FFH_T), intent(inout)        :: h
+    integer(FFH_INT_KIND), intent(in) :: i
     h%flags(i) = achar(1)
   end subroutine set_bucket_filled
 
   pure subroutine set_bucket_deleted(h, i)
-    type(ffh_t), intent(inout) :: h
-    integer, intent(in)        :: i
+    type(FFH_T), intent(inout)        :: h
+    integer(FFH_INT_KIND), intent(in) :: i
     h%flags(i) = achar(ior(iachar(h%flags(i)), 2))
   end subroutine set_bucket_deleted
 
   !> Compute index for given key
-  pure integer function hash_index(h, key) result(i)
-    type(ffh_t), intent(in) :: h
+  pure integer(FFH_INT_KIND) function hash_index(h, key) result(i)
+    type(FFH_T), intent(in) :: h
     FFH_KEY_ARG, intent(in) :: key
     i = iand(h%hash_function(key), h%hash_mask)
   end function hash_index
 
   !> Compute next index inside a loop
-  pure integer function next_index(h, i_prev, step)
-    type(ffh_t), intent(in) :: h
-    integer, intent(in)     :: i_prev
-    integer, intent(in)     :: step
+  pure integer(FFH_INT_KIND) function next_index(h, i_prev, step)
+    type(FFH_T), intent(in)           :: h
+    integer(FFH_INT_KIND), intent(in) :: i_prev
+    integer(FFH_INT_KIND), intent(in) :: step
     next_index = iand(i_prev + step, h%hash_mask)
   end function next_index
 
@@ -445,36 +469,57 @@ contains
 #endif
 
 #ifndef FFH_CUSTOM_HASH_FUNCTION
+!
+!*** BEGIN default hash function
   pure function hash_function(key) result(hash)
-    FFH_KEY_ARG, intent(in) :: key
-    integer                 :: hash
-    integer, parameter      :: seed = 42
+    FFH_KEY_ARG, intent(in)   :: key
+    integer(FFH_INT_KIND)     :: hash
+    integer(int32), parameter :: seed = 42
 #ifdef FFH_KEY_IS_STRING
-    call MurmurHash3_x86_32(key, len_trim(key), seed, hash)
+    hash = default_hash_core(key, seed)
 #else
-    integer, parameter      :: n_bytes = ceiling(storage_size(key)*0.125d0)
-    character(len=n_bytes)  :: buf
-    call MurmurHash3_x86_32(transfer(key, buf), n_bytes, seed, hash)
+    integer, parameter     :: n_bytes = ceiling(0.125d0*storage_size(key))
+    character(len=n_bytes) :: buf
+    buf = transfer(key, buf)
+    hash = default_hash_core(buf, seed)
 #endif
   end function hash_function
+!*** END default hash function
+!
+!*** BEGIN helper function (to avoid code duplication)
+  pure function default_hash_core(buf, seed) result(hash)
+    character(len=*), intent(in) :: buf
+    integer(int32),   intent(in) :: seed
+    integer(FFH_INT_KIND)        :: hash
+#ifdef FFH_ENABLE_INT64
+    integer(int32) :: hash128(4)
+    integer(int64) :: h1, h2
+    call MurmurHash3_x64_128(buf, len(buf), seed, hash128)
+    h1 = transfer(hash128(1:2), h1)
+    h2 = transfer(hash128(3:4), h2)
+    hash = ieor(h1, h2)
+#else
+    call MurmurHash3_x86_32(buf, len(buf), seed, hash)
+#endif
+  end function default_hash_core
+!*** END helper function
+!
+#endif
 
   pure integer(int32) function rotl32(x, r)
-    use iso_fortran_env
     integer(int32), intent(in) :: x
-    integer(int8), intent(in)  :: r
+    integer(int64), intent(in)  :: r
     rotl32 = ior(shiftl(x, r), shiftr(x, (32 - r)))
   end function rotl32
 
   pure integer(int64) function rotl64(x, r)
-    use iso_fortran_env
     integer(int64), intent(in) :: x
-    integer(int8), intent(in)  :: r
+    integer(int64), intent(in)  :: r
     rotl64 = ior(shiftl(x, r), shiftr(x, (64 - r)))
   end function rotl64
 
   ! Finalization mix - force all bits of a hash block to avalanche
   pure integer(int32) function fmix32(h_in) result(h)
-    use iso_fortran_env
     integer(int32), intent(in) :: h_in
     h = h_in
     h = ieor(h, shiftr(h, 16))
@@ -484,8 +529,17 @@ contains
     h = ieor(h, shiftr(h, 16))
   end function fmix32
 
+  pure integer(int64) function fmix64(k_in) result(k)
+    integer(int64), intent(in) :: k_in
+    k = k_in
+    k = ieor(k, shiftr(k, 33))
+    k = k * (-49064778989728563_int64) !0xff51afd7ed558ccd
+    k = ieor(k, shiftr(k, 33))
+    k = k * (-4265267296055464877_int64) !0xc4ceb9fe1a85ec53
+    k = ieor(k, shiftr(k, 33))
+  end function fmix64
+
   pure subroutine MurmurHash3_x86_32(key, klen, seed, hash)
-    use iso_fortran_env
     integer, intent(in)             :: klen
     character(len=klen), intent(in) :: key
     integer(int32), intent(in)      :: seed
@@ -504,11 +558,11 @@ contains
        k1 = transfer(key(i*4-3:i*4), k1)
 
        k1 = k1 * c1
-       k1 = rotl32(k1,15_int8)
+       k1 = rotl32(k1,15_int64)
        k1 = k1 * c2
 
        h1 = ieor(h1, k1)
-       h1 = rotl32(h1,13_int8)
+       h1 = rotl32(h1,13_int64)
        h1 = h1 * 5 - 430675100  ! 0xe6546b64
     end do
 
@@ -524,7 +578,7 @@ contains
     ! Check if the above loop was executed
     if (i >= 1) then
        k1 = k1 * c1
-       k1 = rotl32(k1,15_int8)
+       k1 = rotl32(k1,15_int64)
        k1 = k1 * c2
        h1 = ieor(h1, k1)
     end if
@@ -534,9 +588,99 @@ contains
     h1 = fmix32(h1)
     hash = h1
   end subroutine MurmurHash3_x86_32
-#endif
+
+  pure subroutine MurmurHash3_x64_128(key, klen, seed, hash)
+    integer, intent(in)             :: klen
+    character(len=klen), intent(in) :: key
+    integer(int32), intent(in)      :: seed
+    integer(int32), intent(out)     :: hash(4)
+    integer                         :: i, i0, n, nblocks
+    integer(int64)                  :: h1, h2, k1, k2
+    ! 0x87c37b91114253d5
+    integer(int64), parameter       :: c1         = -8663945395140668459_int64
+    ! 0x4cf5ad432745937f
+    integer(int64), parameter       :: c2         = 5545529020109919103_int64
+    integer, parameter              :: shifts(15) = [(i*8, i=0,7), (i*8, i=0,6)]
+
+    h1      = seed
+    h2      = seed
+    nblocks = shiftr(klen, 4)    ! nblocks / 16
+
+    ! body
+    do i = 1, nblocks
+       k1 = transfer(key(i*16-15:i*16-8), k1)
+       k2 = transfer(key(i*16-7:i*16), k2)
+
+       k1 = k1 * c1
+       k1 = rotl64(k1,31_int64)
+       k1 = k1 * c2
+
+       h1 = ieor(h1, k1)
+       h1 = rotl64(h1,27_int64)
+       h1 = h1 + h2
+       h1 = h1 * 5 + 1390208809_int64 ! 0x52dce729
+
+       k2 = k2 * c2
+       k2 = rotl64(k2,33_int64)
+       k2 = k2 * c1
+
+       h2 = ieor(h2, k2)
+       h2 = rotl64(h2,31_int64)
+       h2 = h1 + h2
+       h2 = h2 * 5 + 944331445 ! 0x38495ab5
+    end do
+
+    ! tail
+    k1 = 0
+    k2 = 0
+    i  = iand(klen, 15)
+    i0 = 16 * nblocks
+
+    do n = i, 9, -1
+       k2 = ieor(k2, shiftl(iachar(key(i0+n:i0+n), int64), shifts(n)))
+    end do
+
+    ! Check if the above loop was executed
+    if (i >= 9) then
+       k2 = k2 * c2
+       k2  = rotl64(k2,33_int64)
+       k2 = k2 * c1
+       h2 = ieor(h2, k2)
+    end if
+
+    do n = min(i, 8), 1, -1
+       k1 = ieor(k1, shiftl(iachar(key(i0+n:i0+n), int64), shifts(n)))
+    end do
+
+    ! Check if the above loop was executed
+    if (i >= 1) then
+       k1 = k1 * c1
+       k1 = rotl64(k1,31_int64)
+       k1 = k1 * c2
+       h1 = ieor(h1, k1)
+    end if
+
+    ! finalization
+    h1 = ieor(h1, int(klen, int64))
+    h2 = ieor(h2, int(klen, int64))
+
+    h1 = h1 + h2
+    h2 = h2 + h1
+
+    h1 = fmix64(h1)
+    h2 = fmix64(h2)
+
+    h1 = h1 + h2
+    h2 = h2 + h1
+
+    hash = transfer([h1, h2], hash)
+  end subroutine MurmurHash3_x64_128
 
   ! So that this file can be included multiple times
+#undef FFH_ENABLE_INT64
+#undef FFH_INT_KIND
+#undef FFH_T
+#undef FFH_EXISTING_KEY_IS_ERROR
 #undef FFH_KEY_TYPE
 #undef FFH_KEY_ARG
 #undef FFH_KEY_IS_STRING
