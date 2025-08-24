@@ -1,4 +1,5 @@
 module m_ffhash
+  use iso_fortran_env
   implicit none
 #define FFH_KEY_TYPE character(len=20)
 #define FFH_KEY_IS_STRING
